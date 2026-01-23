@@ -66,6 +66,26 @@
    docker-compose logs -f bot
    ```
 
+### Миграция базы данных
+
+Если вы обновляете существующую базу данных (например, после изменения типов данных для Telegram ID), выполните миграцию:
+
+```bash
+docker-compose exec bot python migrate_telegram_ids.py
+```
+
+Или если база данных уже создана и нужно обновить типы данных:
+```bash
+# Остановите бота
+docker-compose stop bot
+
+# Запустите миграцию
+docker-compose run --rm bot python migrate_telegram_ids.py
+
+# Запустите бота снова
+docker-compose up -d
+```
+
 ### Развертывание через GitHub Actions
 
 При пуше в ветку `main` или `master` автоматически собирается Docker образ и пушится в GitHub Container Registry.

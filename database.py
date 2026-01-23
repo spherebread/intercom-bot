@@ -1,4 +1,4 @@
-from sqlalchemy import create_engine, Column, Integer, String, DateTime, Boolean, ForeignKey, Text
+from sqlalchemy import create_engine, Column, Integer, BigInteger, String, DateTime, Boolean, ForeignKey, Text
 from sqlalchemy.ext.declarative import declarative_base
 from sqlalchemy.orm import sessionmaker, relationship
 from datetime import datetime
@@ -20,10 +20,10 @@ class Access(Base):
     comment = Column(Text, nullable=True)
     is_active = Column(Boolean, default=True, nullable=False)
     created_at = Column(DateTime, default=datetime.utcnow, nullable=False)
-    created_by = Column(Integer, nullable=False)  # Telegram user ID администратора
+    created_by = Column(BigInteger, nullable=False)  # Telegram user ID администратора
     
     # Связь с пользователем, который активировал доступ
-    activated_by = Column(Integer, nullable=True)  # Telegram user ID пользователя
+    activated_by = Column(BigInteger, nullable=True)  # Telegram user ID пользователя
     activated_at = Column(DateTime, nullable=True)
     
     def is_expired(self):
@@ -32,12 +32,22 @@ class Access(Base):
             return False
         return datetime.utcnow() > self.expires_at
     
+    def is_unlimited(self):
+        """Проверка, является ли доступ бесконечным"""
+        return self.max_uses == -1
+    
     def is_usable(self):
         """Проверка возможности использования"""
-        return self.is_active and not self.is_expired() and self.current_uses < self.max_uses
+        if not self.is_active or self.is_expired():
+            return False
+        if self.is_unlimited():
+            return True
+        return self.current_uses < self.max_uses
     
     def remaining_uses(self):
         """Оставшееся количество использований"""
+        if self.is_unlimited():
+            return None  # None означает бесконечность
         return max(0, self.max_uses - self.current_uses)
     
     def use(self):
@@ -52,7 +62,7 @@ class User(Base):
     __tablename__ = "users"
     
     id = Column(Integer, primary_key=True)
-    telegram_id = Column(Integer, unique=True, nullable=False, index=True)
+    telegram_id = Column(BigInteger, unique=True, nullable=False, index=True)
     username = Column(String(255), nullable=True)
     first_name = Column(String(255), nullable=True)
     last_name = Column(String(255), nullable=True)

@@ -166,9 +166,14 @@ async def status(update: Update, context: ContextTypes.DEFAULT_TYPE):
     remaining = access.remaining_uses()
     expires_text = "Бессрочно" if access.expires_at is None else access.expires_at.strftime("%d.%m.%Y %H:%M")
     
+    if access.is_unlimited():
+        uses_text = f"Использовано: {access.current_uses} / ∞ (бесконечно)"
+    else:
+        uses_text = f"Оставшееся количество использований: {remaining}/{access.max_uses}"
+    
     status_text = (
         f"📊 Статус вашего доступа:\n\n"
-        f"Оставшееся количество использований: {remaining}/{access.max_uses}\n"
+        f"{uses_text}\n"
         f"Срок действия: {expires_text}\n"
         f"Статус: {'✅ Активен' if access.is_usable() else '❌ Неактивен'}"
     )
@@ -199,13 +204,14 @@ async def create_access_start(update: Update, context: ContextTypes.DEFAULT_TYPE
         "➕ Создание нового доступа\n\n"
         "Шаг 1/4: Количество использований\n\n"
         "Введите количество использований (по умолчанию: 1)\n"
-        "Или нажмите кнопку для использования значения по умолчанию:"
+        "Или выберите из предложенных вариантов (включая бесконечное количество):"
     )
     
     keyboard = [
         [InlineKeyboardButton("1 (по умолчанию)", callback_data="create_uses_1")],
         [InlineKeyboardButton("5", callback_data="create_uses_5")],
         [InlineKeyboardButton("10", callback_data="create_uses_10")],
+        [InlineKeyboardButton("∞ Бесконечно", callback_data="create_uses_unlimited")],
         [InlineKeyboardButton("Отмена", callback_data="create_cancel")]
     ]
     
@@ -228,11 +234,17 @@ async def create_access_uses(update: Update, context: ContextTypes.DEFAULT_TYPE)
             return ConversationHandler.END
         
         if query.data.startswith("create_uses_"):
-            uses = int(query.data.split("_")[2])
+            uses_str = query.data.split("_")[2]
+            if uses_str == "unlimited":
+                uses = -1
+                uses_text = "Бесконечно"
+            else:
+                uses = int(uses_str)
+                uses_text = str(uses)
             context.user_data['max_uses'] = uses
             
             text = (
-                f"✅ Количество использований: {uses}\n\n"
+                f"✅ Количество использований: {uses_text}\n\n"
                 "Шаг 2/4: Срок действия\n\n"
                 "Введите количество дней действия (или 0 для бессрочного доступа)\n"
                 "Или выберите из предложенных вариантов:"
@@ -251,15 +263,21 @@ async def create_access_uses(update: Update, context: ContextTypes.DEFAULT_TYPE)
     else:
         # Текстовый ввод
         try:
-            uses = int(update.message.text)
-            if uses < 1:
-                await update.message.reply_text("❌ Количество использований должно быть больше 0. Попробуйте снова:")
-                return MAX_USES
+            text_input = update.message.text.strip().lower()
+            if text_input in ["бесконечно", "unlimited", "∞", "-1"]:
+                uses = -1
+                uses_text = "Бесконечно"
+            else:
+                uses = int(text_input)
+                if uses < 1:
+                    await update.message.reply_text("❌ Количество использований должно быть больше 0 (или введите 'бесконечно' для неограниченного доступа). Попробуйте снова:")
+                    return MAX_USES
+                uses_text = str(uses)
             
             context.user_data['max_uses'] = uses
             
             text = (
-                f"✅ Количество использований: {uses}\n\n"
+                f"✅ Количество использований: {uses_text}\n\n"
                 "Шаг 2/4: Срок действия\n\n"
                 "Введите количество дней действия (или 0 для бессрочного доступа)\n"
                 "Или выберите из предложенных вариантов:"
@@ -276,7 +294,7 @@ async def create_access_uses(update: Update, context: ContextTypes.DEFAULT_TYPE)
             await update.message.reply_text(text, reply_markup=InlineKeyboardMarkup(keyboard))
             return EXPIRES_DAYS
         except ValueError:
-            await update.message.reply_text("❌ Неверный формат. Введите число:")
+            await update.message.reply_text("❌ Неверный формат. Введите число или 'бесконечно' для неограниченного доступа:")
             return MAX_USES
 
 async def create_access_days(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -372,10 +390,11 @@ async def create_access_comment(update: Update, context: ContextTypes.DEFAULT_TY
     
     # Подтверждение
     expires_text = "Бессрочно" if context.user_data['expires_at'] is None else context.user_data['expires_at'].strftime("%d.%m.%Y %H:%M")
+    uses_text = "Бесконечно" if context.user_data['max_uses'] == -1 else str(context.user_data['max_uses'])
     
     text = (
         "Шаг 4/4: Подтверждение\n\n"
-        f"Количество использований: {context.user_data['max_uses']}\n"
+        f"Количество использований: {uses_text}\n"
         f"Срок действия: {expires_text}\n"
         f"Комментарий: {comment_text}\n\n"
         "Подтвердите создание доступа:"
@@ -418,11 +437,12 @@ async def create_access_confirm(update: Update, context: ContextTypes.DEFAULT_TY
         
         expires_text = "Бессрочно" if context.user_data['expires_at'] is None else context.user_data['expires_at'].strftime("%d.%m.%Y %H:%M")
         comment_text = context.user_data['comment'] or "Нет"
+        uses_text = "Бесконечно" if context.user_data['max_uses'] == -1 else str(context.user_data['max_uses'])
         
         response_text = (
             f"✅ Доступ создан!\n\n"
             f"ID: {access.id}\n"
-            f"Количество использований: {context.user_data['max_uses']}\n"
+            f"Количество использований: {uses_text}\n"
             f"Срок действия: {expires_text}\n"
             f"Комментарий: {comment_text}\n\n"
             f"Ссылка для активации:\n`{link}`"
@@ -491,9 +511,14 @@ async def list_accesses(update: Update, context: ContextTypes.DEFAULT_TYPE, page
         expires_text = "Бессрочно" if access.expires_at is None else access.expires_at.strftime("%d.%m.%Y %H:%M")
         status_emoji = "✅" if access.is_usable() else "❌"
         
+        if access.is_unlimited():
+            uses_text = f"Использований: {access.current_uses}/∞ (бесконечно)"
+        else:
+            uses_text = f"Использований: {access.current_uses}/{access.max_uses}"
+        
         text_parts.append(
             f"\n{status_emoji} <b>ID: {access.id}</b>\n"
-            f"Использований: {access.current_uses}/{access.max_uses}\n"
+            f"{uses_text}\n"
             f"Срок: {expires_text}\n"
             f"Активирован: {activated_text}\n"
             f"Комментарий: {access.comment or 'Нет'}"
@@ -666,9 +691,14 @@ async def button_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
         remaining = access.remaining_uses()
         expires_text = "Бессрочно" if access.expires_at is None else access.expires_at.strftime("%d.%m.%Y %H:%M")
         
+        if access.is_unlimited():
+            uses_text = f"Использовано: {access.current_uses} / ∞ (бесконечно)"
+        else:
+            uses_text = f"Оставшееся количество использований: {remaining}/{access.max_uses}"
+        
         status_text = (
             f"📊 Статус вашего доступа:\n\n"
-            f"Оставшееся количество использований: {remaining}/{access.max_uses}\n"
+            f"{uses_text}\n"
             f"Срок действия: {expires_text}\n"
             f"Статус: {'✅ Активен' if access.is_usable() else '❌ Неактивен'}"
         )
