@@ -1,0 +1,172 @@
+from sqlalchemy import create_engine, Column, Integer, String, DateTime, Boolean, ForeignKey, Text
+from sqlalchemy.ext.declarative import declarative_base
+from sqlalchemy.orm import sessionmaker, relationship
+from datetime import datetime
+import uuid
+
+from config import Config
+
+Base = declarative_base()
+
+class Access(Base):
+    """Модель временного доступа"""
+    __tablename__ = "accesses"
+    
+    id = Column(Integer, primary_key=True)
+    token = Column(String(64), unique=True, nullable=False, index=True)
+    max_uses = Column(Integer, default=1, nullable=False)
+    current_uses = Column(Integer, default=0, nullable=False)
+    expires_at = Column(DateTime, nullable=True)  # None = бесконечный срок
+    comment = Column(Text, nullable=True)
+    is_active = Column(Boolean, default=True, nullable=False)
+    created_at = Column(DateTime, default=datetime.utcnow, nullable=False)
+    created_by = Column(Integer, nullable=False)  # Telegram user ID администратора
+    
+    # Связь с пользователем, который активировал доступ
+    activated_by = Column(Integer, nullable=True)  # Telegram user ID пользователя
+    activated_at = Column(DateTime, nullable=True)
+    
+    def is_expired(self):
+        """Проверка истечения срока действия"""
+        if self.expires_at is None:
+            return False
+        return datetime.utcnow() > self.expires_at
+    
+    def is_usable(self):
+        """Проверка возможности использования"""
+        return self.is_active and not self.is_expired() and self.current_uses < self.max_uses
+    
+    def remaining_uses(self):
+        """Оставшееся количество использований"""
+        return max(0, self.max_uses - self.current_uses)
+    
+    def use(self):
+        """Использование доступа (увеличение счетчика)"""
+        if self.is_usable():
+            self.current_uses += 1
+            return True
+        return False
+
+class User(Base):
+    """Модель пользователя (для хранения информации о пользователях)"""
+    __tablename__ = "users"
+    
+    id = Column(Integer, primary_key=True)
+    telegram_id = Column(Integer, unique=True, nullable=False, index=True)
+    username = Column(String(255), nullable=True)
+    first_name = Column(String(255), nullable=True)
+    last_name = Column(String(255), nullable=True)
+    created_at = Column(DateTime, default=datetime.utcnow, nullable=False)
+    last_seen = Column(DateTime, default=datetime.utcnow, nullable=False)
+
+class Database:
+    def __init__(self):
+        self.engine = create_engine(Config.DATABASE_URL)
+        self.SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=self.engine)
+    
+    def init_db(self):
+        """Инициализация базы данных (создание таблиц)"""
+        Base.metadata.create_all(bind=self.engine)
+    
+    def get_session(self):
+        """Получение сессии базы данных"""
+        return self.SessionLocal()
+    
+    def create_access(self, max_uses=1, expires_at=None, comment=None, created_by=None):
+        """Создание нового доступа"""
+        session = self.get_session()
+        try:
+            token = str(uuid.uuid4())
+            access = Access(
+                token=token,
+                max_uses=max_uses,
+                expires_at=expires_at,
+                comment=comment,
+                created_by=created_by
+            )
+            session.add(access)
+            session.commit()
+            session.refresh(access)
+            return access
+        finally:
+            session.close()
+    
+    def get_access_by_token(self, token):
+        """Получение доступа по токену"""
+        session = self.get_session()
+        try:
+            return session.query(Access).filter(Access.token == token).first()
+        finally:
+            session.close()
+    
+    def activate_access(self, token, user_id):
+        """Активация доступа пользователем"""
+        session = self.get_session()
+        try:
+            access = session.query(Access).filter(Access.token == token).first()
+            if access and not access.activated_by:
+                access.activated_by = user_id
+                access.activated_at = datetime.utcnow()
+                session.commit()
+                return access
+            return None
+        finally:
+            session.close()
+    
+    def get_user_access(self, user_id):
+        """Получение активного доступа пользователя"""
+        session = self.get_session()
+        try:
+            return session.query(Access).filter(
+                Access.activated_by == user_id,
+                Access.is_active == True
+            ).first()
+        finally:
+            session.close()
+    
+    def get_all_accesses(self):
+        """Получение всех доступов (для администраторов)"""
+        session = self.get_session()
+        try:
+            return session.query(Access).order_by(Access.created_at.desc()).all()
+        finally:
+            session.close()
+    
+    def revoke_access(self, access_id):
+        """Отзыв доступа"""
+        session = self.get_session()
+        try:
+            access = session.query(Access).filter(Access.id == access_id).first()
+            if access:
+                access.is_active = False
+                session.commit()
+                return True
+            return False
+        finally:
+            session.close()
+    
+    def get_or_create_user(self, telegram_id, username=None, first_name=None, last_name=None):
+        """Получение или создание пользователя"""
+        session = self.get_session()
+        try:
+            user = session.query(User).filter(User.telegram_id == telegram_id).first()
+            if not user:
+                user = User(
+                    telegram_id=telegram_id,
+                    username=username,
+                    first_name=first_name,
+                    last_name=last_name
+                )
+                session.add(user)
+                session.commit()
+                session.refresh(user)
+            else:
+                # Обновление информации о пользователе
+                user.username = username
+                user.first_name = first_name
+                user.last_name = last_name
+                user.last_seen = datetime.utcnow()
+                session.commit()
+            return user
+        finally:
+            session.close()
