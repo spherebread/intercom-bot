@@ -15,6 +15,7 @@ from telegram.constants import ParseMode
 from config import Config
 from database import Database, Access
 from intercom_service import IntercomService
+from telegram.error import BadRequest
 
 # Настройка логирования
 logging.basicConfig(
@@ -22,6 +23,18 @@ logging.basicConfig(
     level=logging.INFO
 )
 logger = logging.getLogger(__name__)
+
+async def safe_edit_message(query, text, reply_markup=None, parse_mode=None):
+    """Безопасное редактирование сообщения с обработкой ошибки 'Message is not modified'"""
+    try:
+        await query.edit_message_text(text, reply_markup=reply_markup, parse_mode=parse_mode)
+    except BadRequest as e:
+        if "Message is not modified" in str(e):
+            # Сообщение не изменилось - это нормально, просто игнорируем
+            logger.debug("Message not modified, ignoring")
+        else:
+            # Другая ошибка - пробрасываем дальше
+            raise
 
 # Инициализация базы данных
 db = Database()
@@ -38,6 +51,7 @@ def get_admin_menu():
     keyboard = [
         [InlineKeyboardButton("➕ Создать доступ", callback_data="admin_create")],
         [InlineKeyboardButton("📋 Список доступов", callback_data="admin_list")],
+        [InlineKeyboardButton("🚪 Открыть дверь", callback_data="admin_open")],
         [InlineKeyboardButton("🔙 Главное меню", callback_data="admin_menu")]
     ]
     return InlineKeyboardMarkup(keyboard)
@@ -190,7 +204,7 @@ async def create_access_start(update: Update, context: ContextTypes.DEFAULT_TYPE
         text = "❌ У вас нет прав администратора."
         if update.callback_query:
             await update.callback_query.answer()
-            await update.callback_query.edit_message_text(text)
+            await safe_edit_message(update.callback_query, text)
         else:
             await update.message.reply_text(text)
         return ConversationHandler.END
@@ -217,7 +231,7 @@ async def create_access_start(update: Update, context: ContextTypes.DEFAULT_TYPE
     
     if update.callback_query:
         await update.callback_query.answer()
-        await update.callback_query.edit_message_text(text, reply_markup=InlineKeyboardMarkup(keyboard))
+        await safe_edit_message(update.callback_query, text, reply_markup=InlineKeyboardMarkup(keyboard))
     else:
         await update.message.reply_text(text, reply_markup=InlineKeyboardMarkup(keyboard))
     
@@ -230,7 +244,7 @@ async def create_access_uses(update: Update, context: ContextTypes.DEFAULT_TYPE)
         await query.answer()
         
         if query.data == "create_cancel":
-            await query.edit_message_text("❌ Создание доступа отменено.", reply_markup=get_admin_menu())
+            await safe_edit_message(query, "❌ Создание доступа отменено.", reply_markup=get_admin_menu())
             return ConversationHandler.END
         
         if query.data.startswith("create_uses_"):
@@ -258,7 +272,7 @@ async def create_access_uses(update: Update, context: ContextTypes.DEFAULT_TYPE)
                 [InlineKeyboardButton("Отмена", callback_data="create_cancel")]
             ]
             
-            await query.edit_message_text(text, reply_markup=InlineKeyboardMarkup(keyboard))
+            await safe_edit_message(query, text, reply_markup=InlineKeyboardMarkup(keyboard))
             return EXPIRES_DAYS
     else:
         # Текстовый ввод
@@ -304,7 +318,7 @@ async def create_access_days(update: Update, context: ContextTypes.DEFAULT_TYPE)
         await query.answer()
         
         if query.data == "create_cancel":
-            await query.edit_message_text("❌ Создание доступа отменено.", reply_markup=get_admin_menu())
+            await safe_edit_message(query, "❌ Создание доступа отменено.", reply_markup=get_admin_menu())
             return ConversationHandler.END
         
         if query.data.startswith("create_days_"):
@@ -327,7 +341,7 @@ async def create_access_days(update: Update, context: ContextTypes.DEFAULT_TYPE)
                 [InlineKeyboardButton("Отмена", callback_data="create_cancel")]
             ]
             
-            await query.edit_message_text(text, reply_markup=InlineKeyboardMarkup(keyboard))
+            await safe_edit_message(query, text, reply_markup=InlineKeyboardMarkup(keyboard))
             return COMMENT
     else:
         # Текстовый ввод
@@ -370,7 +384,7 @@ async def create_access_comment(update: Update, context: ContextTypes.DEFAULT_TY
         await query.answer()
         
         if query.data == "create_cancel":
-            await query.edit_message_text("❌ Создание доступа отменено.", reply_markup=get_admin_menu())
+            await safe_edit_message(query, "❌ Создание доступа отменено.", reply_markup=get_admin_menu())
             return ConversationHandler.END
         
         if query.data == "create_comment_skip":
@@ -406,7 +420,7 @@ async def create_access_comment(update: Update, context: ContextTypes.DEFAULT_TY
     ]
     
     if update.callback_query:
-        await update.callback_query.edit_message_text(text, reply_markup=InlineKeyboardMarkup(keyboard))
+        await safe_edit_message(update.callback_query, text, reply_markup=InlineKeyboardMarkup(keyboard))
     else:
         await update.message.reply_text(text, reply_markup=InlineKeyboardMarkup(keyboard))
     
@@ -418,7 +432,7 @@ async def create_access_confirm(update: Update, context: ContextTypes.DEFAULT_TY
     await query.answer()
     
     if query.data == "create_cancel":
-        await query.edit_message_text("❌ Создание доступа отменено.", reply_markup=get_admin_menu())
+        await safe_edit_message(query, "❌ Создание доступа отменено.", reply_markup=get_admin_menu())
         return ConversationHandler.END
     
     if query.data == "create_confirm":
@@ -453,7 +467,7 @@ async def create_access_confirm(update: Update, context: ContextTypes.DEFAULT_TY
             [InlineKeyboardButton("🔙 Главное меню", callback_data="admin_menu")]
         ]
         
-        await query.edit_message_text(response_text, reply_markup=InlineKeyboardMarkup(keyboard), parse_mode=ParseMode.MARKDOWN)
+        await safe_edit_message(query, response_text, reply_markup=InlineKeyboardMarkup(keyboard), parse_mode=ParseMode.MARKDOWN)
         
         # Очистка данных
         context.user_data.clear()
@@ -464,7 +478,7 @@ async def create_access_cancel(update: Update, context: ContextTypes.DEFAULT_TYP
     context.user_data.clear()
     if update.callback_query:
         await update.callback_query.answer()
-        await update.callback_query.edit_message_text("❌ Создание доступа отменено.", reply_markup=get_admin_menu())
+        await safe_edit_message(update.callback_query, "❌ Создание доступа отменено.", reply_markup=get_admin_menu())
     return ConversationHandler.END
 
 async def list_accesses(update: Update, context: ContextTypes.DEFAULT_TYPE, page=0):
@@ -475,7 +489,7 @@ async def list_accesses(update: Update, context: ContextTypes.DEFAULT_TYPE, page
         text = "❌ У вас нет прав администратора."
         if update.callback_query:
             await update.callback_query.answer()
-            await update.callback_query.edit_message_text(text)
+            await safe_edit_message(update.callback_query, text)
         else:
             await update.message.reply_text(text)
         return
@@ -487,7 +501,7 @@ async def list_accesses(update: Update, context: ContextTypes.DEFAULT_TYPE, page
         keyboard = [[InlineKeyboardButton("🔙 Главное меню", callback_data="admin_menu")]]
         if update.callback_query:
             await update.callback_query.answer()
-            await update.callback_query.edit_message_text(text, reply_markup=InlineKeyboardMarkup(keyboard))
+            await safe_edit_message(update.callback_query, text, reply_markup=InlineKeyboardMarkup(keyboard))
         else:
             await update.message.reply_text(text, reply_markup=InlineKeyboardMarkup(keyboard))
         return
@@ -507,7 +521,21 @@ async def list_accesses(update: Update, context: ContextTypes.DEFAULT_TYPE, page
     keyboard = []
     
     for access in page_accesses:
-        activated_text = "Нет" if not access.activated_by else f"Да (ID: {access.activated_by})"
+        # Получение информации о пользователе, который активировал доступ
+        if access.activated_by:
+            user = db.get_user_by_id(access.activated_by)
+            if user:
+                if user.username:
+                    activated_text = f"Да (@{user.username})"
+                elif user.first_name:
+                    activated_text = f"Да ({user.first_name})"
+                else:
+                    activated_text = f"Да (ID: {access.activated_by})"
+            else:
+                activated_text = f"Да (ID: {access.activated_by})"
+        else:
+            activated_text = "Нет"
+        
         expires_text = "Бессрочно" if access.expires_at is None else access.expires_at.strftime("%d.%m.%Y %H:%M")
         status_emoji = "✅" if access.is_usable() else "❌"
         
@@ -544,7 +572,7 @@ async def list_accesses(update: Update, context: ContextTypes.DEFAULT_TYPE, page
     
     if update.callback_query:
         await update.callback_query.answer()
-        await update.callback_query.edit_message_text(reply_text, reply_markup=reply_markup, parse_mode=ParseMode.HTML)
+        await safe_edit_message(update.callback_query, reply_text, reply_markup=reply_markup, parse_mode=ParseMode.HTML)
     else:
         await update.message.reply_text(reply_text, reply_markup=reply_markup, parse_mode=ParseMode.HTML)
 
@@ -579,7 +607,8 @@ async def button_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     
     # Главное меню администратора
     if data == "admin_menu":
-        await query.edit_message_text(
+        await safe_edit_message(
+            query,
             "👋 Добро пожаловать, администратор!\n\nВыберите действие:",
             reply_markup=get_admin_menu()
         )
@@ -589,12 +618,14 @@ async def button_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if data == "user_menu":
         access = db.get_user_access(user_id)
         if access:
-            await query.edit_message_text(
+            await safe_edit_message(
+                query,
                 "👋 Добро пожаловать!\n\nУ вас есть активный доступ. Выберите действие:",
                 reply_markup=get_user_menu()
             )
         else:
-            await query.edit_message_text(
+            await safe_edit_message(
+                query,
                 "👋 Добро пожаловать!\n\nУ вас нет активного доступа. Обратитесь к администратору для получения доступа."
             )
         return
@@ -621,11 +652,21 @@ async def button_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 [InlineKeyboardButton("Отмена", callback_data="create_cancel")]
             ]
             
-            await query.edit_message_text(text, reply_markup=InlineKeyboardMarkup(keyboard))
+            await safe_edit_message(query, text, reply_markup=InlineKeyboardMarkup(keyboard))
             return MAX_USES
         
         elif data == "admin_list":
             await list_accesses(update, context, page=0)
+            return
+        
+        elif data == "admin_open":
+            # Открытие двери администратором (без проверки доступа)
+            success, message = IntercomService.open_door()
+            
+            if success:
+                await safe_edit_message(query, f"✅ {message}", reply_markup=get_admin_menu())
+            else:
+                await safe_edit_message(query, f"❌ {message}", reply_markup=get_admin_menu())
             return
         
         elif data.startswith("revoke_"):
@@ -635,12 +676,13 @@ async def button_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
                     [InlineKeyboardButton("📋 Обновить список", callback_data="admin_list")],
                     [InlineKeyboardButton("🔙 Главное меню", callback_data="admin_menu")]
                 ]
-                await query.edit_message_text(
+                await safe_edit_message(
+                    query,
                     f"✅ Доступ {access_id} успешно отозван.",
                     reply_markup=InlineKeyboardMarkup(keyboard)
                 )
             else:
-                await query.edit_message_text(f"❌ Доступ {access_id} не найден.", reply_markup=get_admin_menu())
+                await safe_edit_message(query, f"❌ Доступ {access_id} не найден.", reply_markup=get_admin_menu())
             return
         
         elif data.startswith("list_page_"):
@@ -659,11 +701,11 @@ async def button_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
             ).first()
             
             if not access:
-                await query.edit_message_text("❌ У вас нет активного доступа.", reply_markup=get_user_menu())
+                await safe_edit_message(query, "❌ У вас нет активного доступа.", reply_markup=get_user_menu())
                 return
             
             if not access.is_usable():
-                await query.edit_message_text("❌ Ваш доступ больше недействителен (истек срок или достигнут лимит использований).", reply_markup=get_user_menu())
+                await safe_edit_message(query, "❌ Ваш доступ больше недействителен (истек срок или достигнут лимит использований).", reply_markup=get_user_menu())
                 return
             
             # Использование доступа
@@ -676,16 +718,16 @@ async def button_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
         success, message = IntercomService.open_door()
         
         if success:
-            await query.edit_message_text(f"✅ {message}", reply_markup=get_user_menu())
+            await safe_edit_message(query, f"✅ {message}", reply_markup=get_user_menu())
         else:
-            await query.edit_message_text(f"❌ {message}", reply_markup=get_user_menu())
+            await safe_edit_message(query, f"❌ {message}", reply_markup=get_user_menu())
         return
     
     elif data == "user_status":
         access = db.get_user_access(user_id)
         
         if not access:
-            await query.edit_message_text("❌ У вас нет активного доступа.", reply_markup=get_user_menu())
+            await safe_edit_message(query, "❌ У вас нет активного доступа.", reply_markup=get_user_menu())
             return
         
         remaining = access.remaining_uses()
@@ -703,7 +745,7 @@ async def button_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
             f"Статус: {'✅ Активен' if access.is_usable() else '❌ Неактивен'}"
         )
         
-        await query.edit_message_text(status_text, reply_markup=get_user_menu())
+        await safe_edit_message(query, status_text, reply_markup=get_user_menu())
         return
 
 def main():

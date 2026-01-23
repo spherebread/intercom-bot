@@ -3,8 +3,11 @@ from sqlalchemy.ext.declarative import declarative_base
 from sqlalchemy.orm import sessionmaker, relationship
 from datetime import datetime
 import uuid
+import logging
 
 from config import Config
+
+logger = logging.getLogger(__name__)
 
 Base = declarative_base()
 
@@ -77,6 +80,41 @@ class Database:
     def init_db(self):
         """Инициализация базы данных (создание таблиц)"""
         Base.metadata.create_all(bind=self.engine)
+        
+        # Попытка автоматической миграции типов данных для Telegram ID
+        try:
+            from sqlalchemy import text, inspect
+            inspector = inspect(self.engine)
+            
+            with self.engine.begin() as conn:  # begin() автоматически коммитит транзакцию
+                # Проверяем и мигрируем users.telegram_id
+                if 'users' in inspector.get_table_names():
+                    users_columns = {col['name']: str(col['type']) for col in inspector.get_columns('users')}
+                    if 'telegram_id' in users_columns:
+                        col_type = users_columns['telegram_id']
+                        if 'INTEGER' in col_type.upper() or ('INT' in col_type.upper() and 'BIGINT' not in col_type.upper()):
+                            conn.execute(text("ALTER TABLE users ALTER COLUMN telegram_id TYPE BIGINT USING telegram_id::BIGINT;"))
+                            logger.info("Автоматическая миграция: users.telegram_id -> BIGINT")
+                
+                # Проверяем и мигрируем accesses.created_by и activated_by
+                if 'accesses' in inspector.get_table_names():
+                    accesses_columns = {col['name']: str(col['type']) for col in inspector.get_columns('accesses')}
+                    
+                    if 'created_by' in accesses_columns:
+                        col_type = accesses_columns['created_by']
+                        if 'INTEGER' in col_type.upper() or ('INT' in col_type.upper() and 'BIGINT' not in col_type.upper()):
+                            conn.execute(text("ALTER TABLE accesses ALTER COLUMN created_by TYPE BIGINT USING created_by::BIGINT;"))
+                            logger.info("Автоматическая миграция: accesses.created_by -> BIGINT")
+                    
+                    if 'activated_by' in accesses_columns:
+                        col_type = accesses_columns['activated_by']
+                        if 'INTEGER' in col_type.upper() or ('INT' in col_type.upper() and 'BIGINT' not in col_type.upper()):
+                            conn.execute(text("ALTER TABLE accesses ALTER COLUMN activated_by TYPE BIGINT USING activated_by::BIGINT;"))
+                            logger.info("Автоматическая миграция: accesses.activated_by -> BIGINT")
+        except Exception as e:
+            # Если автоматическая миграция не удалась, это не критично
+            # Пользователь может выполнить миграцию вручную
+            logger.warning(f"Не удалось выполнить автоматическую миграцию: {e}. Выполните миграцию вручную: python migrate_telegram_ids.py")
     
     def get_session(self):
         """Получение сессии базы данных"""
@@ -152,6 +190,14 @@ class Database:
                 session.commit()
                 return True
             return False
+        finally:
+            session.close()
+    
+    def get_user_by_id(self, telegram_id):
+        """Получение пользователя по Telegram ID"""
+        session = self.get_session()
+        try:
+            return session.query(User).filter(User.telegram_id == telegram_id).first()
         finally:
             session.close()
     
