@@ -137,24 +137,24 @@ async def open_door(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Обработчик команды /open - открытие двери"""
     user_id = update.effective_user.id
     
-    # Получение доступа пользователя через сессию
+    # Получаем актуальный доступ с учётом срока и количества использований
+    access = db.get_user_access(user_id)
+    if not access:
+        await update.message.reply_text("❌ У вас нет активного доступа.", reply_markup=get_user_menu())
+        return
+    
+    if not access.is_usable():
+        await update.message.reply_text("❌ Ваш доступ больше недействителен (истек срок или достигнут лимит использований).", reply_markup=get_user_menu())
+        return
+    
+    # Использование доступа (увеличиваем счётчик в отдельной сессии)
     session = db.get_session()
     try:
-        access = session.query(Access).filter(
-            Access.activated_by == user_id,
-            Access.is_active == True
-        ).first()
-        
-        if not access:
-            await update.message.reply_text("❌ У вас нет активного доступа.", reply_markup=get_user_menu())
-            return
-        
-        if not access.is_usable():
+        db_access = session.query(Access).filter(Access.id == access.id).first()
+        if not db_access or not db_access.is_usable():
             await update.message.reply_text("❌ Ваш доступ больше недействителен (истек срок или достигнут лимит использований).", reply_markup=get_user_menu())
             return
-        
-        # Использование доступа
-        access.current_uses += 1
+        db_access.current_uses += 1
         session.commit()
     finally:
         session.close()
@@ -767,23 +767,23 @@ async def button_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     # Пользовательские действия
     if data == "user_open":
         # Открытие двери через кнопку
+        access = db.get_user_access(user_id)
+        if not access:
+            await safe_edit_message(query, "❌ У вас нет активного доступа.", reply_markup=get_user_menu())
+            return
+        
+        if not access.is_usable():
+            await safe_edit_message(query, "❌ Ваш доступ больше недействителен (истек срок или достигнут лимит использований).", reply_markup=get_user_menu())
+            return
+        
+        # Использование доступа (увеличиваем счётчик в отдельной сессии)
         session = db.get_session()
         try:
-            access = session.query(Access).filter(
-                Access.activated_by == user_id,
-                Access.is_active == True
-            ).first()
-            
-            if not access:
-                await safe_edit_message(query, "❌ У вас нет активного доступа.", reply_markup=get_user_menu())
-                return
-            
-            if not access.is_usable():
+            db_access = session.query(Access).filter(Access.id == access.id).first()
+            if not db_access or not db_access.is_usable():
                 await safe_edit_message(query, "❌ Ваш доступ больше недействителен (истек срок или достигнут лимит использований).", reply_markup=get_user_menu())
                 return
-            
-            # Использование доступа
-            access.current_uses += 1
+            db_access.current_uses += 1
             session.commit()
         finally:
             session.close()
