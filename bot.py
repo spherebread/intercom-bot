@@ -136,6 +136,15 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
 async def open_door(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Обработчик команды /open - открытие двери"""
     user_id = update.effective_user.id
+
+    # Администратор может всегда открыть дверь, минуя систему доступов
+    if is_admin(user_id):
+        success, message = IntercomService.open_door()
+        if success:
+            await update.message.reply_text(f"✅ {message}")
+        else:
+            await update.message.reply_text(f"❌ {message}")
+        return
     
     # Получаем актуальный доступ с учётом срока и количества использований
     access = db.get_user_access(user_id)
@@ -193,6 +202,28 @@ async def status(update: Update, context: ContextTypes.DEFAULT_TYPE):
     )
     
     await update.message.reply_text(status_text, reply_markup=get_user_menu())
+
+
+async def menu_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Обработчик команды /menu - показать актуальное меню"""
+    user_id = update.effective_user.id
+    
+    if is_admin(user_id):
+        await update.message.reply_text(
+            "👋 Меню администратора:\n\nВыберите действие:",
+            reply_markup=get_admin_menu()
+        )
+    else:
+        access = db.get_user_access(user_id)
+        if access:
+            await update.message.reply_text(
+                "👋 Меню пользователя:\n\nУ вас есть активный доступ. Выберите действие:",
+                reply_markup=get_user_menu()
+            )
+        else:
+            await update.message.reply_text(
+                "👋 Меню пользователя:\n\nУ вас нет активного доступа. Обратитесь к администратору для получения доступа."
+            )
 
 # Администраторские команды и диалоги
 
