@@ -139,6 +139,14 @@ class Database:
         finally:
             session.close()
     
+    def get_access_by_id(self, access_id: int):
+        """Получение доступа по внутреннему ID"""
+        session = self.get_session()
+        try:
+            return session.query(Access).filter(Access.id == access_id).first()
+        finally:
+            session.close()
+    
     def get_access_by_token(self, token):
         """Получение доступа по токену"""
         session = self.get_session()

@@ -560,9 +560,12 @@ async def list_accesses(update: Update, context: ContextTypes.DEFAULT_TYPE, page
                 f"Комментарий: {access.comment or 'Нет'}"
             )
             
-            # Кнопку "Отозвать" показываем только для действительно активных и ещё используемых доступов
+            # Кнопки действий для активных доступов
             if access.is_active and access.is_usable():
-                keyboard.append([InlineKeyboardButton(f"❌ Отозвать {access.id}", callback_data=f"revoke_{access.id}")])
+                keyboard.append([
+                    InlineKeyboardButton(f"❌ Отозвать {access.id}", callback_data=f"revoke_{access.id}"),
+                    InlineKeyboardButton(f"🔗 Получить ссылку", callback_data=f"link_{access.id}")
+                ])
     
     # --- Неактивные доступы (просрочены, исчерпаны или отозваны) ---
     if inactive_page:
@@ -727,6 +730,33 @@ async def button_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 )
             else:
                 await safe_edit_message(query, f"❌ Доступ {access_id} не найден.", reply_markup=get_admin_menu())
+            return
+        
+        elif data.startswith("link_"):
+            # Получение ссылки для активации доступа
+            access_id = int(data.split("_")[1])
+            access = db.get_access_by_id(access_id)
+            if not access:
+                await safe_edit_message(query, f"❌ Доступ {access_id} не найден.", reply_markup=get_admin_menu())
+                return
+            
+            link = f"{Config.BOT_BASE_URL}?start={access.token}"
+            expires_text = "Бессрочно" if access.expires_at is None else access.expires_at.strftime("%d.%m.%Y %H:%M")
+            uses_text = "Бесконечно" if access.is_unlimited() else f"{access.current_uses}/{access.max_uses}"
+            
+            text = (
+                f"🔗 Ссылка для доступа ID {access.id}:\n"
+                f"`{link}`\n\n"
+                f"Использований: {uses_text}\n"
+                f"Срок действия: {expires_text}\n"
+                f"Статус: {'✅ Активен' if access.is_usable() else '❌ Неактивен'}"
+            )
+            
+            keyboard = [
+                [InlineKeyboardButton("📋 Вернуться к списку", callback_data="admin_list")],
+                [InlineKeyboardButton("🔙 Главное меню", callback_data="admin_menu")]
+            ]
+            await safe_edit_message(query, text, reply_markup=InlineKeyboardMarkup(keyboard), parse_mode=ParseMode.MARKDOWN)
             return
         
         elif data.startswith("list_page_"):
