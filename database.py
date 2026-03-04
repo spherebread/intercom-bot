@@ -1,4 +1,4 @@
-from sqlalchemy import create_engine, Column, Integer, BigInteger, String, DateTime, Boolean, ForeignKey, Text
+from sqlalchemy import create_engine, Column, Integer, BigInteger, String, DateTime, Boolean, ForeignKey, Text, or_
 from sqlalchemy.ext.declarative import declarative_base
 from sqlalchemy.orm import sessionmaker, relationship
 from datetime import datetime
@@ -173,10 +173,20 @@ class Database:
         """Получение активного доступа пользователя"""
         session = self.get_session()
         try:
-            return session.query(Access).filter(
-                Access.activated_by == user_id,
-                Access.is_active == True
-            ).first()
+            now = datetime.utcnow()
+            return (
+                session.query(Access)
+                .filter(
+                    Access.activated_by == user_id,
+                    Access.is_active == True,
+                    # Не истёк по времени
+                    or_(Access.expires_at.is_(None), Access.expires_at > now),
+                    # Не исчерпан по количеству использований или бесконечный
+                    or_(Access.max_uses == -1, Access.current_uses < Access.max_uses),
+                )
+                .order_by(Access.created_at.desc())
+                .first()
+            )
         finally:
             session.close()
     
