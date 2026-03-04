@@ -20,7 +20,7 @@ from telegram.error import BadRequest
 # Настройка логирования
 logging.basicConfig(
     format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
-    level=logging.INFO
+    level=logging.WARNING
 )
 logger = logging.getLogger(__name__)
 
@@ -515,45 +515,89 @@ async def list_accesses(update: Update, context: ContextTypes.DEFAULT_TYPE, page
     end_idx = min(start_idx + items_per_page, len(accesses))
     page_accesses = accesses[start_idx:end_idx]
     
+    # Разделяем доступы на активные (ещё можно использовать) и неактивные
+    active_page = [a for a in page_accesses if a.is_usable()]
+    inactive_page = [a for a in page_accesses if not a.is_usable()]
+    
     # Формирование списка
     text_parts = [f"📋 Список доступов (стр. {page + 1}/{total_pages}):\n"]
     
     keyboard = []
     
-    for access in page_accesses:
-        # Получение информации о пользователе, который активировал доступ
-        if access.activated_by:
-            user = db.get_user_by_id(access.activated_by)
-            if user:
-                if user.username:
-                    activated_text = f"Да (@{user.username})"
-                elif user.first_name:
-                    activated_text = f"Да ({user.first_name})"
+    # --- Активные доступы ---
+    if active_page:
+        text_parts.append("\n<b>Активные доступы:</b>")
+    
+        for access in active_page:
+            # Получение информации о пользователе, который активировал доступ
+            if access.activated_by:
+                user = db.get_user_by_id(access.activated_by)
+                if user:
+                    if user.username:
+                        activated_text = f"Да (@{user.username})"
+                    elif user.first_name:
+                        activated_text = f"Да ({user.first_name})"
+                    else:
+                        activated_text = f"Да (ID: {access.activated_by})"
                 else:
                     activated_text = f"Да (ID: {access.activated_by})"
             else:
-                activated_text = f"Да (ID: {access.activated_by})"
-        else:
-            activated_text = "Нет"
-        
-        expires_text = "Бессрочно" if access.expires_at is None else access.expires_at.strftime("%d.%m.%Y %H:%M")
-        status_emoji = "✅" if access.is_usable() else "❌"
-        
-        if access.is_unlimited():
-            uses_text = f"Использований: {access.current_uses}/∞ (бесконечно)"
-        else:
-            uses_text = f"Использований: {access.current_uses}/{access.max_uses}"
-        
-        text_parts.append(
-            f"\n{status_emoji} <b>ID: {access.id}</b>\n"
-            f"{uses_text}\n"
-            f"Срок: {expires_text}\n"
-            f"Активирован: {activated_text}\n"
-            f"Комментарий: {access.comment or 'Нет'}"
-        )
-        
-        if access.is_active:
-            keyboard.append([InlineKeyboardButton(f"❌ Отозвать {access.id}", callback_data=f"revoke_{access.id}")])
+                activated_text = "Нет"
+            
+            expires_text = "Бессрочно" if access.expires_at is None else access.expires_at.strftime("%d.%m.%Y %H:%M")
+            status_emoji = "✅" if access.is_usable() else "❌"
+            
+            if access.is_unlimited():
+                uses_text = f"Использований: {access.current_uses}/∞ (бесконечно)"
+            else:
+                uses_text = f"Использований: {access.current_uses}/{access.max_uses}"
+            
+            text_parts.append(
+                f"\n{status_emoji} <b>ID: {access.id}</b>\n"
+                f"{uses_text}\n"
+                f"Срок: {expires_text}\n"
+                f"Активирован: {activated_text}\n"
+                f"Комментарий: {access.comment or 'Нет'}"
+            )
+            
+            # Кнопку "Отозвать" показываем только для действительно активных и ещё используемых доступов
+            if access.is_active and access.is_usable():
+                keyboard.append([InlineKeyboardButton(f"❌ Отозвать {access.id}", callback_data=f"revoke_{access.id}")])
+    
+    # --- Неактивные доступы (просрочены, исчерпаны или отозваны) ---
+    if inactive_page:
+        text_parts.append("\n<b>Неактивные доступы:</b>")
+    
+        for access in inactive_page:
+            if access.activated_by:
+                user = db.get_user_by_id(access.activated_by)
+                if user:
+                    if user.username:
+                        activated_text = f"Да (@{user.username})"
+                    elif user.first_name:
+                        activated_text = f"Да ({user.first_name})"
+                    else:
+                        activated_text = f"Да (ID: {access.activated_by})"
+                else:
+                    activated_text = f"Да (ID: {access.activated_by})"
+            else:
+                activated_text = "Нет"
+            
+            expires_text = "Бессрочно" if access.expires_at is None else access.expires_at.strftime("%d.%m.%Y %H:%M")
+            status_emoji = "❌"
+            
+            if access.is_unlimited():
+                uses_text = f"Использований: {access.current_uses}/∞ (бесконечно)"
+            else:
+                uses_text = f"Использований: {access.current_uses}/{access.max_uses}"
+            
+            text_parts.append(
+                f"\n{status_emoji} <b>ID: {access.id}</b>\n"
+                f"{uses_text}\n"
+                f"Срок: {expires_text}\n"
+                f"Активирован: {activated_text}\n"
+                f"Комментарий: {access.comment or 'Нет'}"
+            )
     
     # Кнопки пагинации
     nav_buttons = []
