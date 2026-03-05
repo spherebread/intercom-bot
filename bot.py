@@ -16,6 +16,7 @@ from config import Config
 from database import Database, Access
 from intercom_service import IntercomService
 from telegram.error import BadRequest
+from sqlalchemy.exc import OperationalError
 
 # Настройка логирования
 logging.basicConfig(
@@ -23,6 +24,19 @@ logging.basicConfig(
     level=logging.WARNING
 )
 logger = logging.getLogger(__name__)
+
+async def error_handler(update: object, context: ContextTypes.DEFAULT_TYPE):
+    """Глобальный обработчик ошибок без уведомления пользователя"""
+    logger.exception("Unhandled exception while processing update", exc_info=context.error)
+
+    if isinstance(context.error, OperationalError):
+        logger.warning("Database connectivity issue detected (OperationalError)")
+
+    if update and hasattr(update, "callback_query") and update.callback_query:
+        try:
+            await update.callback_query.answer()
+        except Exception:
+            logger.exception("Failed to answer callback query in error handler")
 
 async def safe_edit_message(query, text, reply_markup=None, parse_mode=None):
     """Безопасное редактирование сообщения с обработкой ошибки 'Message is not modified'"""
@@ -900,11 +914,13 @@ def main():
     
     # Регистрация обработчиков
     application.add_handler(CommandHandler("start", start))
+    application.add_handler(CommandHandler("menu", menu_command))
     application.add_handler(CommandHandler("open", open_door))
     application.add_handler(CommandHandler("status", status))
     application.add_handler(CommandHandler("list_accesses", lambda u, c: list_accesses(u, c, page=0)))
     application.add_handler(create_access_conv)
     application.add_handler(CallbackQueryHandler(button_callback))
+    application.add_error_handler(error_handler)
     
     # Запуск бота
     logger.info("Бот запущен")
