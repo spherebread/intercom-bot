@@ -193,6 +193,13 @@ async def open_door(update: Update, context: ContextTypes.DEFAULT_TYPE):
 async def status(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Обработчик команды /status - просмотр статуса доступа"""
     user_id = update.effective_user.id
+
+    if is_admin(user_id):
+        await update.message.reply_text(
+            "👋 Меню администратора:\n\nВыберите действие:",
+            reply_markup=get_admin_menu()
+        )
+        return
     
     access = db.get_user_access(user_id)
     
