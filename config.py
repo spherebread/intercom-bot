@@ -8,6 +8,7 @@ class Config:
     ADMIN_IDS = [int(admin_id.strip()) for admin_id in os.getenv("ADMIN_IDS", "").split(",") if admin_id.strip()]
     INTERCOM_ENDPOINT = os.getenv("INTERCOM_ENDPOINT")
     INTERCOM_TOKEN = os.getenv("INTERCOM_TOKEN")
+    PREVIEW_URL = os.getenv("PREVIEW_URL")
     DATABASE_URL = os.getenv("DATABASE_URL", "postgresql://intercom_user:intercom_password@postgres:5432/intercom_db")
     BOT_BASE_URL = os.getenv("BOT_BASE_URL", "https://t.me/your_bot_username")
     

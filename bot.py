@@ -1,4 +1,5 @@
 import logging
+from io import BytesIO
 from datetime import datetime, timedelta
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup, ReplyKeyboardMarkup, KeyboardButton
 from telegram.ext import (
@@ -12,6 +13,7 @@ from telegram.ext import (
 )
 from telegram.constants import ParseMode
 
+import requests
 from config import Config
 from database import Database, Access
 from intercom_service import IntercomService
@@ -78,6 +80,67 @@ def get_user_menu():
         [InlineKeyboardButton("🔙 Главное меню", callback_data="user_menu")]
     ]
     return InlineKeyboardMarkup(keyboard)
+
+
+def get_door_open_caption(user) -> str:
+    """Подпись для уведомления администратора об открытии двери"""
+    if user.username:
+        actor = f"@{user.username}"
+    else:
+        full_name = " ".join(part for part in [user.first_name, user.last_name] if part).strip()
+        actor = full_name or f"пользователь {user.id}"
+    opened_at = datetime.now().strftime("%d.%m.%Y %H:%M:%S")
+    return f"{actor} открыл дверь в {opened_at}"
+
+
+async def notify_admins_about_open_door(context: ContextTypes.DEFAULT_TYPE, user):
+    """Отправка администраторам фото и подписи после открытия двери"""
+    if not Config.ADMIN_IDS:
+        return
+
+    caption = get_door_open_caption(user)
+
+    if not Config.PREVIEW_URL:
+        logger.warning("PREVIEW_URL is not set, sending text-only admin notification")
+        for admin_id in Config.ADMIN_IDS:
+            try:
+                await context.bot.send_message(chat_id=admin_id, text=caption)
+            except Exception:
+                logger.exception("Failed to send text notification to admin %s", admin_id)
+        return
+
+    try:
+        response = requests.get(Config.PREVIEW_URL, timeout=10)
+        response.raise_for_status()
+
+        image_bytes = BytesIO(response.content)
+        image_bytes.name = "preview.jpg"
+
+        for admin_id in Config.ADMIN_IDS:
+            try:
+                image_bytes.seek(0)
+                await context.bot.send_photo(
+                    chat_id=admin_id,
+                    photo=image_bytes,
+                    caption=caption
+                )
+            except Exception:
+                logger.exception("Failed to send photo notification to admin %s", admin_id)
+    except requests.exceptions.RequestException:
+        logger.exception("Failed to fetch preview image from PREVIEW_URL")
+        for admin_id in Config.ADMIN_IDS:
+            try:
+                await context.bot.send_message(chat_id=admin_id, text=caption)
+            except Exception:
+                logger.exception("Failed to send fallback text notification to admin %s", admin_id)
+
+
+async def open_door_and_notify(context: ContextTypes.DEFAULT_TYPE, user):
+    """Открытие двери и уведомление администраторов при успехе"""
+    success, message = IntercomService.open_door()
+    if success:
+        await notify_admins_about_open_door(context, user)
+    return success, message
 
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Обработчик команды /start"""
@@ -149,11 +212,12 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 async def open_door(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Обработчик команды /open - открытие двери"""
+    user = update.effective_user
     user_id = update.effective_user.id
 
     # Администратор может всегда открыть дверь, минуя систему доступов
     if is_admin(user_id):
-        success, message = IntercomService.open_door()
+        success, message = await open_door_and_notify(context, user)
         if success:
             await update.message.reply_text(f"✅ {message}")
         else:
@@ -183,7 +247,7 @@ async def open_door(update: Update, context: ContextTypes.DEFAULT_TYPE):
         session.close()
     
     # Открытие двери
-    success, message = IntercomService.open_door()
+    success, message = await open_door_and_notify(context, user)
     
     if success:
         await update.message.reply_text(f"✅ {message}", reply_markup=get_user_menu())
@@ -701,6 +765,7 @@ async def button_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     await query.answer()
     
+    user = query.from_user
     user_id = query.from_user.id
     data = query.data
     
@@ -760,7 +825,7 @@ async def button_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
         
         elif data == "admin_open":
             # Открытие двери администратором (без проверки доступа)
-            success, message = IntercomService.open_door()
+            success, message = await open_door_and_notify(context, user)
             
             if success:
                 await safe_edit_message(query, f"✅ {message}", reply_markup=get_admin_menu())
@@ -841,7 +906,7 @@ async def button_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
             session.close()
         
         # Открытие двери
-        success, message = IntercomService.open_door()
+        success, message = await open_door_and_notify(context, user)
         
         if success:
             await safe_edit_message(query, f"✅ {message}", reply_markup=get_user_menu())
