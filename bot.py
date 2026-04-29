@@ -137,10 +137,21 @@ async def notify_admins_about_open_door(context: ContextTypes.DEFAULT_TYPE, user
 
 async def open_door_and_notify(context: ContextTypes.DEFAULT_TYPE, user):
     """Открытие двери и уведомление администраторов при успехе"""
-    success, message = IntercomService.open_door()
+    success, message, message_type = IntercomService.open_door()
     if success:
         await notify_admins_about_open_door(context, user)
-    return success, message
+    return success, message, message_type
+
+
+def get_open_door_message(success: bool, message: str, message_type: str | None) -> str:
+    """Форматирование результата открытия двери для пользователя"""
+    if success:
+        return f"✅ {message}"
+
+    if message_type == "offline_code":
+        return f"Домофон недоступен. Попробуйте оффлайн-код: {message}"
+
+    return f"❌ {message}"
 
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Обработчик команды /start"""
@@ -217,11 +228,8 @@ async def open_door(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     # Администратор может всегда открыть дверь, минуя систему доступов
     if is_admin(user_id):
-        success, message = await open_door_and_notify(context, user)
-        if success:
-            await update.message.reply_text(f"✅ {message}")
-        else:
-            await update.message.reply_text(f"❌ {message}")
+        success, message, message_type = await open_door_and_notify(context, user)
+        await update.message.reply_text(get_open_door_message(success, message, message_type))
         return
     
     # Получаем актуальный доступ с учётом срока и количества использований
@@ -247,12 +255,8 @@ async def open_door(update: Update, context: ContextTypes.DEFAULT_TYPE):
         session.close()
     
     # Открытие двери
-    success, message = await open_door_and_notify(context, user)
-    
-    if success:
-        await update.message.reply_text(f"✅ {message}", reply_markup=get_user_menu())
-    else:
-        await update.message.reply_text(f"❌ {message}", reply_markup=get_user_menu())
+    success, message, message_type = await open_door_and_notify(context, user)
+    await update.message.reply_text(get_open_door_message(success, message, message_type), reply_markup=get_user_menu())
 
 async def status(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Обработчик команды /status - просмотр статуса доступа"""
