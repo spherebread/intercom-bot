@@ -829,12 +829,12 @@ async def button_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
         
         elif data == "admin_open":
             # Открытие двери администратором (без проверки доступа)
-            success, message = await open_door_and_notify(context, user)
-            
-            if success:
-                await safe_edit_message(query, f"✅ {message}", reply_markup=get_admin_menu())
-            else:
-                await safe_edit_message(query, f"❌ {message}", reply_markup=get_admin_menu())
+            success, message, message_type = await open_door_and_notify(context, user)
+            await safe_edit_message(
+                query,
+                get_open_door_message(success, message, message_type),
+                reply_markup=get_admin_menu()
+            )
             return
         
         elif data.startswith("revoke_"):
@@ -910,12 +910,12 @@ async def button_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
             session.close()
         
         # Открытие двери
-        success, message = await open_door_and_notify(context, user)
-        
-        if success:
-            await safe_edit_message(query, f"✅ {message}", reply_markup=get_user_menu())
-        else:
-            await safe_edit_message(query, f"❌ {message}", reply_markup=get_user_menu())
+        success, message, message_type = await open_door_and_notify(context, user)
+        await safe_edit_message(
+            query,
+            get_open_door_message(success, message, message_type),
+            reply_markup=get_user_menu()
+        )
         return
     
     elif data == "user_status":
