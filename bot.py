@@ -68,6 +68,7 @@ def get_admin_menu():
         [InlineKeyboardButton("➕ Создать доступ", callback_data="admin_create")],
         [InlineKeyboardButton("📋 Список доступов", callback_data="admin_list")],
         [InlineKeyboardButton("🚪 Открыть дверь", callback_data="admin_open")],
+        [InlineKeyboardButton("🅿️ Открыть шлагбаум", callback_data="admin_parking")],
         [InlineKeyboardButton("🔙 Главное меню", callback_data="admin_menu")]
     ]
     return InlineKeyboardMarkup(keyboard)
@@ -76,29 +77,30 @@ def get_user_menu():
     """Меню пользователя"""
     keyboard = [
         [InlineKeyboardButton("🚪 Открыть дверь", callback_data="user_open")],
+        [InlineKeyboardButton("🅿️ Открыть шлагбаум", callback_data="user_parking")],
         [InlineKeyboardButton("📊 Статус доступа", callback_data="user_status")],
         [InlineKeyboardButton("🔙 Главное меню", callback_data="user_menu")]
     ]
     return InlineKeyboardMarkup(keyboard)
 
 
-def get_door_open_caption(user) -> str:
-    """Подпись для уведомления администратора об открытии двери"""
+def get_open_caption(user, target_name: str) -> str:
+    """Подпись для уведомления администратора об открытии двери или шлагбаума"""
     if user.username:
         actor = f"@{user.username}"
     else:
         full_name = " ".join(part for part in [user.first_name, user.last_name] if part).strip()
         actor = full_name or f"пользователь {user.id}"
     opened_at = datetime.now().strftime("%d.%m.%Y %H:%M:%S")
-    return f"{actor} открыл дверь в {opened_at}"
+    return f"{actor} открыл {target_name} в {opened_at}"
 
 
-async def notify_admins_about_open_door(context: ContextTypes.DEFAULT_TYPE, user):
-    """Отправка администраторам фото и подписи после открытия двери"""
+async def notify_admins_about_open(context: ContextTypes.DEFAULT_TYPE, user, target_name: str):
+    """Отправка администраторам фото и подписи после открытия двери или шлагбаума"""
     if not Config.ADMIN_IDS:
         return
 
-    caption = get_door_open_caption(user)
+    caption = get_open_caption(user, target_name)
 
     if not Config.PREVIEW_URL:
         logger.warning("PREVIEW_URL is not set, sending text-only admin notification")
@@ -139,7 +141,15 @@ async def open_door_and_notify(context: ContextTypes.DEFAULT_TYPE, user):
     """Открытие двери и уведомление администраторов при успехе"""
     success, message, message_type = IntercomService.open_door()
     if success:
-        await notify_admins_about_open_door(context, user)
+        await notify_admins_about_open(context, user, "дверь")
+    return success, message, message_type
+
+
+async def open_parking_and_notify(context: ContextTypes.DEFAULT_TYPE, user):
+    """Открытие шлагбаума и уведомление администраторов при успехе"""
+    success, message, message_type = IntercomService.open_parking()
+    if success:
+        await notify_admins_about_open(context, user, "шлагбаум")
     return success, message, message_type
 
 
@@ -150,6 +160,14 @@ def get_open_door_message(success: bool, message: str, message_type: str | None)
 
     if message_type == "offline_code":
         return f"Домофон недоступен. Попробуйте оффлайн-код: {message}"
+
+    return f"❌ {message}"
+
+
+def get_open_parking_message(success: bool, message: str, message_type: str | None) -> str:
+    """Форматирование результата открытия шлагбаума для пользователя"""
+    if success:
+        return f"✅ {message}"
 
     return f"❌ {message}"
 
@@ -257,6 +275,44 @@ async def open_door(update: Update, context: ContextTypes.DEFAULT_TYPE):
     # Открытие двери
     success, message, message_type = await open_door_and_notify(context, user)
     await update.message.reply_text(get_open_door_message(success, message, message_type), reply_markup=get_user_menu())
+
+
+async def open_parking(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Обработчик команды /parking - открытие шлагбаума"""
+    user = update.effective_user
+    user_id = update.effective_user.id
+
+    # Администратор может всегда открыть шлагбаум, минуя систему доступов
+    if is_admin(user_id):
+        success, message, message_type = await open_parking_and_notify(context, user)
+        await update.message.reply_text(get_open_parking_message(success, message, message_type))
+        return
+
+    # Получаем актуальный доступ с учётом срока и количества использований
+    access = db.get_user_access(user_id)
+    if not access:
+        await update.message.reply_text("❌ У вас нет активного доступа.", reply_markup=get_user_menu())
+        return
+
+    if not access.is_usable():
+        await update.message.reply_text("❌ Ваш доступ больше недействителен (истек срок или достигнут лимит использований).", reply_markup=get_user_menu())
+        return
+
+    # Использование доступа (увеличиваем счётчик в отдельной сессии)
+    session = db.get_session()
+    try:
+        db_access = session.query(Access).filter(Access.id == access.id).first()
+        if not db_access or not db_access.is_usable():
+            await update.message.reply_text("❌ Ваш доступ больше недействителен (истек срок или достигнут лимит использований).", reply_markup=get_user_menu())
+            return
+        db_access.current_uses += 1
+        session.commit()
+    finally:
+        session.close()
+
+    # Открытие шлагбаума
+    success, message, message_type = await open_parking_and_notify(context, user)
+    await update.message.reply_text(get_open_parking_message(success, message, message_type), reply_markup=get_user_menu())
 
 async def status(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Обработчик команды /status - просмотр статуса доступа"""
@@ -836,6 +892,16 @@ async def button_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 reply_markup=get_admin_menu()
             )
             return
+
+        elif data == "admin_parking":
+            # Открытие шлагбаума администратором (без проверки доступа)
+            success, message, message_type = await open_parking_and_notify(context, user)
+            await safe_edit_message(
+                query,
+                get_open_parking_message(success, message, message_type),
+                reply_markup=get_admin_menu()
+            )
+            return
         
         elif data.startswith("revoke_"):
             access_id = int(data.split("_")[1])
@@ -917,6 +983,38 @@ async def button_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
             reply_markup=get_user_menu()
         )
         return
+
+    if data == "user_parking":
+        # Открытие шлагбаума через кнопку
+        access = db.get_user_access(user_id)
+        if not access:
+            await safe_edit_message(query, "❌ У вас нет активного доступа.", reply_markup=get_user_menu())
+            return
+
+        if not access.is_usable():
+            await safe_edit_message(query, "❌ Ваш доступ больше недействителен (истек срок или достигнут лимит использований).", reply_markup=get_user_menu())
+            return
+
+        # Использование доступа (увеличиваем счётчик в отдельной сессии)
+        session = db.get_session()
+        try:
+            db_access = session.query(Access).filter(Access.id == access.id).first()
+            if not db_access or not db_access.is_usable():
+                await safe_edit_message(query, "❌ Ваш доступ больше недействителен (истек срок или достигнут лимит использований).", reply_markup=get_user_menu())
+                return
+            db_access.current_uses += 1
+            session.commit()
+        finally:
+            session.close()
+
+        # Открытие шлагбаума
+        success, message, message_type = await open_parking_and_notify(context, user)
+        await safe_edit_message(
+            query,
+            get_open_parking_message(success, message, message_type),
+            reply_markup=get_user_menu()
+        )
+        return
     
     elif data == "user_status":
         access = db.get_user_access(user_id)
@@ -992,6 +1090,7 @@ def main():
     application.add_handler(CommandHandler("start", start))
     application.add_handler(CommandHandler("menu", menu_command))
     application.add_handler(CommandHandler("open", open_door))
+    application.add_handler(CommandHandler("parking", open_parking))
     application.add_handler(CommandHandler("status", status))
     application.add_handler(CommandHandler("list_accesses", lambda u, c: list_accesses(u, c, page=0)))
     application.add_handler(create_access_conv)

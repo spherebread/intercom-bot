@@ -55,3 +55,17 @@ class IntercomService:
                 return False, str(offline_code), "offline_code"
 
             return False, f"Ошибка при открытии двери: {str(e)}", None
+
+    @staticmethod
+    def open_parking():
+        """Открытие шлагбаума парковки через API"""
+        try:
+            response = requests.post(
+                Config.PARKING_ENDPOINT,
+                headers=IntercomService._get_headers(),
+                timeout=10
+            )
+            response.raise_for_status()
+            return True, "Шлагбаум успешно открыт", None
+        except requests.exceptions.RequestException as e:
+            return False, f"Ошибка при открытии шлагбаума: {str(e)}", None
