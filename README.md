@@ -110,12 +110,12 @@ Workflow `.github/workflows/ci-cd.yml` после push в `main` или `master`
 2. Находит вручную созданный Swarm Stack по имени и нужный service внутри него.
 3. Выполняет pull образа и force update только выбранного Swarm service.
 
-В настройках репозитория GitHub добавьте:
+В настройках репозитория GitHub добавьте в **Settings → Secrets and variables → Actions → New repository secret**:
 
-- Repository variable `PORTAINER_URL` — URL Portainer без завершающего `/`, например `https://portainer.example.com`
-- Repository variable `PORTAINER_STACK_NAME` — точное имя Stack в Portainer
-- Repository variable `PORTAINER_SERVICE_NAME` — точное имя Swarm service, например `intercom-bot_bot`
-- Repository secret `PORTAINER_API_KEY` — API-ключ Portainer с правами на чтение и обновление Stack
+- Secret `PORTAINER_URL` — URL Portainer без завершающего `/`, например `https://portainer.example.com`
+- Secret `PORTAINER_STACK_NAME` — точное имя Stack в Portainer
+- Secret `PORTAINER_SERVICE_NAME` — точное имя Swarm service, например `intercom-bot_bot`
+- Secret `PORTAINER_API_KEY` — API-ключ Portainer с правами на чтение Stack и обновление service
 
 Для Docker Swarm используется API `POST /api/endpoints/{id}/forceupdateservice` с параметрами `ServiceID` и `PullImage: true`. Stack и service должны быть доступны API-ключу пользователя.
 

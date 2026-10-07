@@ -61,9 +61,9 @@ jobs:
       - name: Pull image and update Portainer Swarm service
         if: github.event_name == 'push' && (github.ref == 'refs/heads/main' || github.ref == 'refs/heads/master')
         env:
-          PORTAINER_URL: ${{ vars.PORTAINER_URL }}
-          PORTAINER_STACK_NAME: ${{ vars.PORTAINER_STACK_NAME }}
-          PORTAINER_SERVICE_NAME: ${{ vars.PORTAINER_SERVICE_NAME }}
+          PORTAINER_URL: ${{ secrets.PORTAINER_URL }}
+          PORTAINER_STACK_NAME: ${{ secrets.PORTAINER_STACK_NAME }}
+          PORTAINER_SERVICE_NAME: ${{ secrets.PORTAINER_SERVICE_NAME }}
           PORTAINER_API_KEY: ${{ secrets.PORTAINER_API_KEY }}
         run: |
           set -euo pipefail
