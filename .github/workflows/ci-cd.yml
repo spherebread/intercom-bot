@@ -105,7 +105,7 @@ jobs:
           curl --fail-with-body --silent --show-error \
             "${API_HEADERS[@]}" \
             -H "Content-Type: application/json" \
-            -X POST \
+            -X PUT \
             "${PORTAINER_URL}/api/endpoints/${endpoint_id}/forceupdateservice" \
             --data "$(jq -n --arg service_id "${service_id}" '{ServiceID: $service_id, PullImage: true}')" \
             >/dev/null
