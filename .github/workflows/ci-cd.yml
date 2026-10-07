@@ -57,3 +57,57 @@ jobs:
           labels: ${{ steps.meta.outputs.labels }}
           cache-from: type=gha
           cache-to: type=gha,mode=max
+
+      - name: Pull image and update Portainer Swarm service
+        if: github.event_name == 'push' && (github.ref == 'refs/heads/main' || github.ref == 'refs/heads/master')
+        env:
+          PORTAINER_URL: ${{ vars.PORTAINER_URL }}
+          PORTAINER_STACK_NAME: ${{ vars.PORTAINER_STACK_NAME }}
+          PORTAINER_SERVICE_NAME: ${{ vars.PORTAINER_SERVICE_NAME }}
+          PORTAINER_API_KEY: ${{ secrets.PORTAINER_API_KEY }}
+        run: |
+          set -euo pipefail
+
+          if [[ -z "${PORTAINER_URL}" || -z "${PORTAINER_STACK_NAME}" || -z "${PORTAINER_SERVICE_NAME}" || -z "${PORTAINER_API_KEY}" ]]; then
+            echo "PORTAINER_URL, PORTAINER_STACK_NAME, PORTAINER_SERVICE_NAME and PORTAINER_API_KEY must be configured in the repository settings."
+            exit 1
+          fi
+
+          PORTAINER_URL="${PORTAINER_URL%/}"
+          API_HEADERS=(-H "X-API-Key: ${PORTAINER_API_KEY}")
+
+          stacks_json="$(curl --fail-with-body --silent --show-error \
+            "${API_HEADERS[@]}" \
+            "${PORTAINER_URL}/api/stacks")"
+
+          stack_json="$(jq -cer --arg name "${PORTAINER_STACK_NAME}" '
+            [ .[] | select(.Name == $name) ]
+            | if length == 1 then .[0]
+              elif length == 0 then error("Portainer stack not found")
+              else error("More than one Portainer stack has this name")
+              end
+          ' <<<"${stacks_json}")"
+
+          endpoint_id="$(jq -er '.EndpointId' <<<"${stack_json}")"
+
+          services_json="$(curl --fail-with-body --silent --show-error \
+            "${API_HEADERS[@]}" \
+            "${PORTAINER_URL}/api/endpoints/${endpoint_id}/docker/services")"
+
+          service_id="$(jq -cer --arg name "${PORTAINER_SERVICE_NAME}" '
+            [ .[] | select(.Spec.Name == $name) ]
+            | if length == 1 then .[0].ID
+              elif length == 0 then error("Docker Swarm service not found")
+              else error("More than one Docker Swarm service has this name")
+              end
+          ' <<<"${services_json}")"
+
+          curl --fail-with-body --silent --show-error \
+            "${API_HEADERS[@]}" \
+            -H "Content-Type: application/json" \
+            -X POST \
+            "${PORTAINER_URL}/api/endpoints/${endpoint_id}/forceupdateservice" \
+            --data "$(jq -n --arg service_id "${service_id}" '{ServiceID: $service_id, PullImage: true}')" \
+            >/dev/null
+
+          echo "Portainer service '${PORTAINER_SERVICE_NAME}' updated successfully."

@@ -102,6 +102,23 @@ DATABASE_URL=postgresql://intercom_user:intercom_password@postgres:5432/intercom
 
 Если `PREVIEW_URL` не задан, бот будет отправлять администраторам только текстовое уведомление.
 
+## Деплой через GitHub Actions и Portainer
+
+Workflow `.github/workflows/ci-cd.yml` после push в `main` или `master`:
+
+1. Собирает и публикует образ в GHCR.
+2. Находит вручную созданный Swarm Stack по имени и нужный service внутри него.
+3. Выполняет pull образа и force update только выбранного Swarm service.
+
+В настройках репозитория GitHub добавьте:
+
+- Repository variable `PORTAINER_URL` — URL Portainer без завершающего `/`, например `https://portainer.example.com`
+- Repository variable `PORTAINER_STACK_NAME` — точное имя Stack в Portainer
+- Repository variable `PORTAINER_SERVICE_NAME` — точное имя Swarm service, например `intercom-bot_bot`
+- Repository secret `PORTAINER_API_KEY` — API-ключ Portainer с правами на чтение и обновление Stack
+
+Для Docker Swarm используется API `POST /api/endpoints/{id}/forceupdateservice` с параметрами `ServiceID` и `PullImage: true`. Stack и service должны быть доступны API-ключу пользователя.
+
 ### 2. Запустите сервисы
 
 ```bash
