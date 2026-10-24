@@ -216,6 +216,19 @@ class Database:
             return False
         finally:
             session.close()
+
+    def update_access_expiration(self, access_id, expires_at):
+        """Изменение срока действия существующего доступа"""
+        session = self.get_session()
+        try:
+            access = session.query(Access).filter(Access.id == access_id).first()
+            if not access:
+                return False
+            access.expires_at = expires_at
+            session.commit()
+            return True
+        finally:
+            session.close()
     
     def get_user_by_id(self, telegram_id):
         """Получение пользователя по Telegram ID"""

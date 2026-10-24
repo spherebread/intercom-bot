@@ -682,6 +682,9 @@ async def list_accesses(update: Update, context: ContextTypes.DEFAULT_TYPE, page
             await update.message.reply_text(text, reply_markup=InlineKeyboardMarkup(keyboard))
         return
     
+    # Сначала сортируем весь список по активности, затем разбиваем на страницы.
+    accesses.sort(key=lambda access: (not access.is_usable(), -access.created_at.timestamp()))
+
     # Пагинация (по 5 доступов на страницу)
     items_per_page = 5
     total_pages = (len(accesses) + items_per_page - 1) // items_per_page
@@ -691,7 +694,7 @@ async def list_accesses(update: Update, context: ContextTypes.DEFAULT_TYPE, page
     end_idx = min(start_idx + items_per_page, len(accesses))
     page_accesses = accesses[start_idx:end_idx]
     
-    # Разделяем доступы на активные (ещё можно использовать) и неактивные
+    # Активные и неактивные группы сохраняют глобальный порядок списка.
     active_page = [a for a in page_accesses if a.is_usable()]
     inactive_page = [a for a in page_accesses if not a.is_usable()]
     
@@ -736,10 +739,10 @@ async def list_accesses(update: Update, context: ContextTypes.DEFAULT_TYPE, page
                 f"Комментарий: {access.comment or 'Нет'}"
             )
             
-            # Кнопки действий для активных доступов
-            if access.is_active and access.is_usable():
+            # Все действия доступа доступны через одну вложенную кнопку.
+            if access.is_active:
                 keyboard.append([
-                    InlineKeyboardButton(f"❌ Отозвать {access.id}", callback_data=f"revoke_{access.id}"),
+                    InlineKeyboardButton(f"⚙️ Действия {access.id}", callback_data=f"access_actions_{access.id}"),
                     InlineKeyboardButton(f"🔗 Получить ссылку", callback_data=f"link_{access.id}")
                 ])
     
@@ -915,6 +918,45 @@ async def button_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
                     f"✅ Доступ {access_id} успешно отозван.",
                     reply_markup=InlineKeyboardMarkup(keyboard)
                 )
+            else:
+                await safe_edit_message(query, f"❌ Доступ {access_id} не найден.", reply_markup=get_admin_menu())
+            return
+
+        elif data.startswith("access_actions_"):
+            access_id = int(data.rsplit("_", 1)[1])
+            access = db.get_access_by_id(access_id)
+            if not access:
+                await safe_edit_message(query, f"❌ Доступ {access_id} не найден.", reply_markup=get_admin_menu())
+                return
+            keyboard = [
+                [InlineKeyboardButton("🗓 Изменить срок", callback_data=f"edit_expiry_{access_id}")],
+                [InlineKeyboardButton("❌ Отозвать доступ", callback_data=f"revoke_{access_id}")],
+                [InlineKeyboardButton("↩️ К списку", callback_data="admin_list")]
+            ]
+            await safe_edit_message(query, f"Действия для доступа {access_id}:", reply_markup=InlineKeyboardMarkup(keyboard))
+            return
+
+        elif data.startswith("edit_expiry_"):
+            access_id = int(data.rsplit("_", 1)[1])
+            access = db.get_access_by_id(access_id)
+            if not access:
+                await safe_edit_message(query, f"❌ Доступ {access_id} не найден.", reply_markup=get_admin_menu())
+                return
+            keyboard = [
+                [InlineKeyboardButton("Бессрочно", callback_data=f"set_expiry_{access_id}_0")],
+                [InlineKeyboardButton("1 день", callback_data=f"set_expiry_{access_id}_1"), InlineKeyboardButton("7 дней", callback_data=f"set_expiry_{access_id}_7")],
+                [InlineKeyboardButton("30 дней", callback_data=f"set_expiry_{access_id}_30")],
+                [InlineKeyboardButton("↩️ Назад", callback_data=f"access_actions_{access_id}")]
+            ]
+            await safe_edit_message(query, f"Выберите новый срок действия доступа {access_id}:", reply_markup=InlineKeyboardMarkup(keyboard))
+            return
+
+        elif data.startswith("set_expiry_"):
+            _, _, access_id, days = data.split("_")
+            access_id, days = int(access_id), int(days)
+            expires_at = None if days == 0 else datetime.utcnow() + timedelta(days=days)
+            if db.update_access_expiration(access_id, expires_at):
+                await safe_edit_message(query, f"✅ Срок доступа {access_id} изменён: {'бессрочно' if days == 0 else f'{days} дн.'}.", reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("📋 К списку", callback_data="admin_list")]]))
             else:
                 await safe_edit_message(query, f"❌ Доступ {access_id} не найден.", reply_markup=get_admin_menu())
             return
