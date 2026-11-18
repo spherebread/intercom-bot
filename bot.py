@@ -1,6 +1,6 @@
 import logging
 from io import BytesIO
-from datetime import datetime, timedelta
+from datetime import timedelta
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup, ReplyKeyboardMarkup, KeyboardButton
 from telegram.ext import (
     Application,
@@ -15,6 +15,7 @@ from telegram.constants import ParseMode
 
 import requests
 from config import Config
+from timeutil import fmt, now_display, utcnow
 from database import Database, Access
 from intercom_service import IntercomService
 from telegram.error import BadRequest
@@ -91,7 +92,7 @@ def get_open_caption(user, target_name: str) -> str:
     else:
         full_name = " ".join(part for part in [user.first_name, user.last_name] if part).strip()
         actor = full_name or f"пользователь {user.id}"
-    opened_at = datetime.now().strftime("%d.%m.%Y %H:%M:%S")
+    opened_at = now_display()
     return f"{actor} открыл {target_name} в {opened_at}"
 
 
@@ -332,7 +333,7 @@ async def status(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return
     
     remaining = access.remaining_uses()
-    expires_text = "Бессрочно" if access.expires_at is None else access.expires_at.strftime("%d.%m.%Y %H:%M")
+    expires_text = "Бессрочно" if access.expires_at is None else fmt(access.expires_at)
     
     if access.is_unlimited():
         uses_text = f"Использовано: {access.current_uses} / ∞ (бесконечно)"
@@ -503,7 +504,7 @@ async def create_access_days(update: Update, context: ContextTypes.DEFAULT_TYPE)
                 context.user_data['expires_at'] = None
                 expires_text = "Бессрочно"
             else:
-                context.user_data['expires_at'] = datetime.utcnow() + timedelta(days=days)
+                context.user_data['expires_at'] = utcnow() + timedelta(days=days)
                 expires_text = f"{days} дней"
             
             text = (
@@ -531,7 +532,7 @@ async def create_access_days(update: Update, context: ContextTypes.DEFAULT_TYPE)
                 context.user_data['expires_at'] = None
                 expires_text = "Бессрочно"
             else:
-                context.user_data['expires_at'] = datetime.utcnow() + timedelta(days=days)
+                context.user_data['expires_at'] = utcnow() + timedelta(days=days)
                 expires_text = f"{days} дней"
             
             text = (
@@ -579,7 +580,7 @@ async def create_access_comment(update: Update, context: ContextTypes.DEFAULT_TY
             comment_text = comment
     
     # Подтверждение
-    expires_text = "Бессрочно" if context.user_data['expires_at'] is None else context.user_data['expires_at'].strftime("%d.%m.%Y %H:%M")
+    expires_text = "Бессрочно" if context.user_data['expires_at'] is None else fmt(context.user_data['expires_at'])
     uses_text = "Бесконечно" if context.user_data['max_uses'] == -1 else str(context.user_data['max_uses'])
     
     text = (
@@ -625,7 +626,7 @@ async def create_access_confirm(update: Update, context: ContextTypes.DEFAULT_TY
         # Генерация ссылки
         link = f"https://t.me/{context.bot.username}?start={access.token}"
         
-        expires_text = "Бессрочно" if context.user_data['expires_at'] is None else context.user_data['expires_at'].strftime("%d.%m.%Y %H:%M")
+        expires_text = "Бессрочно" if context.user_data['expires_at'] is None else fmt(context.user_data['expires_at'])
         comment_text = context.user_data['comment'] or "Нет"
         uses_text = "Бесконечно" if context.user_data['max_uses'] == -1 else str(context.user_data['max_uses'])
         
@@ -723,7 +724,7 @@ async def list_accesses(update: Update, context: ContextTypes.DEFAULT_TYPE, page
             else:
                 activated_text = "Нет"
             
-            expires_text = "Бессрочно" if access.expires_at is None else access.expires_at.strftime("%d.%m.%Y %H:%M")
+            expires_text = "Бессрочно" if access.expires_at is None else fmt(access.expires_at)
             status_emoji = "✅" if access.is_usable() else "❌"
             
             if access.is_unlimited():
@@ -765,7 +766,7 @@ async def list_accesses(update: Update, context: ContextTypes.DEFAULT_TYPE, page
             else:
                 activated_text = "Нет"
             
-            expires_text = "Бессрочно" if access.expires_at is None else access.expires_at.strftime("%d.%m.%Y %H:%M")
+            expires_text = "Бессрочно" if access.expires_at is None else fmt(access.expires_at)
             status_emoji = "❌"
             
             if access.is_unlimited():
@@ -954,7 +955,7 @@ async def button_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
         elif data.startswith("set_expiry_"):
             _, _, access_id, days = data.split("_")
             access_id, days = int(access_id), int(days)
-            expires_at = None if days == 0 else datetime.utcnow() + timedelta(days=days)
+            expires_at = None if days == 0 else utcnow() + timedelta(days=days)
             if db.update_access_expiration(access_id, expires_at):
                 await safe_edit_message(query, f"✅ Срок доступа {access_id} изменён: {'бессрочно' if days == 0 else f'{days} дн.'}.", reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("📋 К списку", callback_data="admin_list")]]))
             else:
@@ -970,7 +971,7 @@ async def button_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 return
             
             link = f"https://t.me/{context.bot.username}?start={access.token}"
-            expires_text = "Бессрочно" if access.expires_at is None else access.expires_at.strftime("%d.%m.%Y %H:%M")
+            expires_text = "Бессрочно" if access.expires_at is None else fmt(access.expires_at)
             uses_text = "Бесконечно" if access.is_unlimited() else f"{access.current_uses}/{access.max_uses}"
             
             text = (
@@ -1066,7 +1067,7 @@ async def button_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
             return
         
         remaining = access.remaining_uses()
-        expires_text = "Бессрочно" if access.expires_at is None else access.expires_at.strftime("%d.%m.%Y %H:%M")
+        expires_text = "Бессрочно" if access.expires_at is None else fmt(access.expires_at)
         
         if access.is_unlimited():
             uses_text = f"Использовано: {access.current_uses} / ∞ (бесконечно)"

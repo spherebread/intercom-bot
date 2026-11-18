@@ -1,11 +1,11 @@
 from sqlalchemy import create_engine, Column, Integer, BigInteger, String, DateTime, Boolean, ForeignKey, Text, or_
 from sqlalchemy.orm import declarative_base
 from sqlalchemy.orm import sessionmaker, relationship
-from datetime import datetime
 import uuid
 import logging
 
 from config import Config
+from timeutil import utcnow
 
 logger = logging.getLogger(__name__)
 
@@ -22,7 +22,7 @@ class Access(Base):
     expires_at = Column(DateTime, nullable=True)  # None = бесконечный срок
     comment = Column(Text, nullable=True)
     is_active = Column(Boolean, default=True, nullable=False)
-    created_at = Column(DateTime, default=datetime.utcnow, nullable=False)
+    created_at = Column(DateTime, default=utcnow, nullable=False)
     created_by = Column(BigInteger, nullable=False)  # Telegram user ID администратора
     
     # Связь с пользователем, который активировал доступ
@@ -33,7 +33,7 @@ class Access(Base):
         """Проверка истечения срока действия"""
         if self.expires_at is None:
             return False
-        return datetime.utcnow() > self.expires_at
+        return utcnow() > self.expires_at
     
     def is_unlimited(self):
         """Проверка, является ли доступ бесконечным"""
@@ -69,8 +69,8 @@ class User(Base):
     username = Column(String(255), nullable=True)
     first_name = Column(String(255), nullable=True)
     last_name = Column(String(255), nullable=True)
-    created_at = Column(DateTime, default=datetime.utcnow, nullable=False)
-    last_seen = Column(DateTime, default=datetime.utcnow, nullable=False)
+    created_at = Column(DateTime, default=utcnow, nullable=False)
+    last_seen = Column(DateTime, default=utcnow, nullable=False)
 
 class Database:
     def __init__(self):
@@ -168,7 +168,7 @@ class Database:
             access = session.query(Access).filter(Access.token == token).first()
             if access and not access.activated_by:
                 access.activated_by = user_id
-                access.activated_at = datetime.utcnow()
+                access.activated_at = utcnow()
                 session.commit()
                 return access
             return None
@@ -179,7 +179,7 @@ class Database:
         """Получение активного доступа пользователя"""
         session = self.get_session()
         try:
-            now = datetime.utcnow()
+            now = utcnow()
             return (
                 session.query(Access)
                 .filter(
@@ -258,7 +258,7 @@ class Database:
                 user.username = username
                 user.first_name = first_name
                 user.last_name = last_name
-                user.last_seen = datetime.utcnow()
+                user.last_seen = utcnow()
                 session.commit()
             return user
         finally:
