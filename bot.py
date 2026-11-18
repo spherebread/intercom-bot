@@ -1097,7 +1097,21 @@ def main():
     logger.info("База данных инициализирована")
     
     # Создание приложения
-    application = Application.builder().token(Config.TELEGRAM_BOT_TOKEN).build()
+    # Увеличенные таймауты и опциональный прокси: api.telegram.org может отвечать медленно
+    builder = (
+        Application.builder()
+        .token(Config.TELEGRAM_BOT_TOKEN)
+        .connect_timeout(20)
+        .read_timeout(30)
+        .write_timeout(30)
+        .pool_timeout(10)
+        .get_updates_connect_timeout(20)
+        .get_updates_read_timeout(40)
+    )
+    if Config.TELEGRAM_PROXY:
+        builder = builder.proxy(Config.TELEGRAM_PROXY).get_updates_proxy(Config.TELEGRAM_PROXY)
+        logger.info("Используется прокси для Telegram API")
+    application = builder.build()
     
     # ConversationHandler для создания доступа
     create_access_conv = ConversationHandler(
@@ -1143,5 +1157,24 @@ def main():
     logger.info("Бот запущен")
     application.run_polling(allowed_updates=Update.ALL_TYPES)
 
+
+def run_with_retries():
+    """Перезапуск при сетевых ошибках на старте (get_me / initialize)."""
+    import asyncio
+    import time
+    from telegram.error import NetworkError
+
+    delay = 5
+    while True:
+        # run_polling закрывает event loop при ошибке — для повторной попытки нужен новый
+        asyncio.set_event_loop(asyncio.new_event_loop())
+        try:
+            main()
+            return
+        except NetworkError as e:  # TimedOut — подкласс NetworkError
+            logger.warning(f"Нет связи с Telegram API ({e}), повтор через {delay} с")
+            time.sleep(delay)
+            delay = min(delay * 2, 120)
+
 if __name__ == "__main__":
-    main()
+    run_with_retries()
