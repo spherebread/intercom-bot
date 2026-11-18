@@ -11,7 +11,6 @@ class Config:
     INTERCOM_TOKEN = os.getenv("INTERCOM_TOKEN")
     PREVIEW_URL = os.getenv("PREVIEW_URL")
     DATABASE_URL = os.getenv("DATABASE_URL", "postgresql://intercom_user:intercom_password@postgres:5432/intercom_db")
-    BOT_BASE_URL = os.getenv("BOT_BASE_URL", "https://t.me/your_bot_username")
     TELEGRAM_PROXY = os.getenv("TELEGRAM_PROXY")  # напр. socks5://user:pass@host:1080 или http://host:3128
     
     @classmethod

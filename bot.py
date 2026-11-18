@@ -623,7 +623,7 @@ async def create_access_confirm(update: Update, context: ContextTypes.DEFAULT_TY
         )
         
         # Генерация ссылки
-        link = f"{Config.BOT_BASE_URL}?start={access.token}"
+        link = f"https://t.me/{context.bot.username}?start={access.token}"
         
         expires_text = "Бессрочно" if context.user_data['expires_at'] is None else context.user_data['expires_at'].strftime("%d.%m.%Y %H:%M")
         comment_text = context.user_data['comment'] or "Нет"
@@ -969,7 +969,7 @@ async def button_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 await safe_edit_message(query, f"❌ Доступ {access_id} не найден.", reply_markup=get_admin_menu())
                 return
             
-            link = f"{Config.BOT_BASE_URL}?start={access.token}"
+            link = f"https://t.me/{context.bot.username}?start={access.token}"
             expires_text = "Бессрочно" if access.expires_at is None else access.expires_at.strftime("%d.%m.%Y %H:%M")
             uses_text = "Бесконечно" if access.is_unlimited() else f"{access.current_uses}/{access.max_uses}"
             

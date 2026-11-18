@@ -74,7 +74,6 @@ Telegram-бот для выдачи временных ссылок доступ
 - `PREVIEW_URL` - URL изображения для отправки администраторам после открытия двери
 - `DATABASE_URL` - строка подключения к PostgreSQL
   - по умолчанию: `postgresql://intercom_user:intercom_password@postgres:5432/intercom_db`
-- `BOT_BASE_URL` - базовый URL бота для генерации ссылок активации
   - по умолчанию: `https://t.me/your_bot_username`
 
 ## Запуск через Docker Compose
@@ -96,7 +95,6 @@ INTERCOM_ENDPOINT=https://example.com/intercom/open
 PARKING_ENDPOINT=https://example.com/parking/open
 INTERCOM_TOKEN=your_intercom_token
 PREVIEW_URL=https://example.com/camera.jpg
-BOT_BASE_URL=https://t.me/your_bot_username
 DATABASE_URL=postgresql://intercom_user:intercom_password@postgres:5432/intercom_db
 ```
 
