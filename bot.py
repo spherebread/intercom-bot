@@ -1083,7 +1083,7 @@ async def button_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await safe_edit_message(query, status_text, reply_markup=get_user_menu())
         return
 
-def main():
+def main(api_base=None):
     """Главная функция запуска бота"""
     # Валидация конфигурации
     try:
@@ -1108,7 +1108,10 @@ def main():
         .get_updates_connect_timeout(20)
         .get_updates_read_timeout(40)
     )
-    if Config.TELEGRAM_PROXY:
+    if api_base:
+        # Локальный telegram-bot-api сервер (фейловер)
+        builder = builder.base_url(f"{api_base}/bot").base_file_url(f"{api_base}/file/bot")
+    elif Config.TELEGRAM_PROXY:
         builder = builder.proxy(Config.TELEGRAM_PROXY).get_updates_proxy(Config.TELEGRAM_PROXY)
         logger.info("Используется прокси для Telegram API")
     application = builder.build()
@@ -1158,6 +1161,42 @@ def main():
     application.run_polling(allowed_updates=Update.ALL_TYPES)
 
 
+async def probe_api(api_base=None) -> bool:
+    """Быстрая проверка, отвечает ли Bot API (облачный или локальный) на getMe."""
+    from telegram import Bot
+    from telegram.error import NetworkError
+    from telegram.request import HTTPXRequest
+
+    kwargs = {"request": HTTPXRequest(connect_timeout=5, read_timeout=10)}
+    if api_base:
+        kwargs.update(base_url=f"{api_base}/bot", base_file_url=f"{api_base}/file/bot")
+    elif Config.TELEGRAM_PROXY:
+        kwargs["request"] = HTTPXRequest(connect_timeout=5, read_timeout=10, proxy=Config.TELEGRAM_PROXY)
+    try:
+        async with Bot(Config.TELEGRAM_BOT_TOKEN, **kwargs):  # initialize() вызывает getMe
+            pass
+        return True
+    except NetworkError as e:
+        logger.warning(f"Bot API {api_base or 'api.telegram.org'} не отвечает: {e}")
+        return False
+
+
+def choose_api_base():
+    """Облачный API, если отвечает; иначе локальный telegram-bot-api (если настроен)."""
+    import asyncio
+    from telegram.error import NetworkError
+
+    if not Config.TELEGRAM_LOCAL_API_URL:
+        return None  # фейловер не настроен — run_polling сам упадёт в NetworkError и мы повторим
+    if asyncio.run(probe_api()):
+        return None
+    local = Config.TELEGRAM_LOCAL_API_URL.rstrip("/")
+    if asyncio.run(probe_api(local)):
+        logger.warning(f"Облачный Bot API не отвечает — работаем через локальный сервер {local}")
+        return local
+    raise NetworkError("Не отвечает ни облачный, ни локальный Bot API")
+
+
 def run_with_retries():
     """Перезапуск при сетевых ошибках на старте (get_me / initialize)."""
     import asyncio
@@ -1166,10 +1205,11 @@ def run_with_retries():
 
     delay = 5
     while True:
-        # run_polling закрывает event loop при ошибке — для повторной попытки нужен новый
-        asyncio.set_event_loop(asyncio.new_event_loop())
         try:
-            main()
+            api_base = choose_api_base()
+            # run_polling закрывает event loop при ошибке — для повторной попытки нужен новый
+            asyncio.set_event_loop(asyncio.new_event_loop())
+            main(api_base)
             return
         except NetworkError as e:  # TimedOut — подкласс NetworkError
             logger.warning(f"Нет связи с Telegram API ({e}), повтор через {delay} с")
